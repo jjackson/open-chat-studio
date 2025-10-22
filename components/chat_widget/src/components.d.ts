@@ -36,6 +36,16 @@ export namespace Components {
          */
         "chatbotId": string;
         /**
+          * Restrict dragging to a specific axis. Only applies when enableDragging is true.
+          * @default 'both'
+         */
+        "dragAxis"?: 'both' | 'x' | 'y';
+        /**
+          * Enable dragging/moving the chat widget. When false (default), the widget position is fixed.
+          * @default false
+         */
+        "enableDragging"?: boolean;
+        /**
           * The text to place in the header.
          */
         "headerText": '';
@@ -43,6 +53,11 @@ export namespace Components {
           * URL of the icon to display on the button. If not provided, uses the default OCS logo.
          */
         "iconUrl"?: string;
+        /**
+          * Initial position of the widget. Can be a corner name or pixel coordinates. Corners: 'bottom-right', 'bottom-left', 'top-right', 'top-left' Coordinates: { x: number, y: number }
+          * @default 'bottom-right'
+         */
+        "initialPosition"?: string | object;
         /**
           * The language code for the widget UI (e.g., 'en', 'es', 'fr'). Defaults to en
          */
@@ -67,6 +82,28 @@ export namespace Components {
           * @default 'right'
          */
         "position": 'left' | 'center' | 'right';
+        /**
+          * Custom persistence adapter for saving/loading widget position. Provide get() and set(pos) methods.
+         */
+        "positionPersistence"?: {
+    get: () => { x: number; y: number } | null;
+    set: (pos: { x: number; y: number }) => void;
+  };
+        /**
+          * Safe margin from viewport edges in pixels. Can be a number or object with top/right/bottom/left.
+          * @default 12
+         */
+        "safeMargin"?: number | object;
+        /**
+          * Distance in pixels from edge to trigger snap. Only applies when snapToEdges is true.
+          * @default 32
+         */
+        "snapThreshold"?: number;
+        /**
+          * Automatically snap to nearest edge when drag ends within snapThreshold pixels.
+          * @default true
+         */
+        "snapToEdges"?: boolean;
         /**
           * Array of starter questions that users can click to send (JSON array of strings)
          */
@@ -94,10 +131,29 @@ export namespace Components {
           * Welcome messages to display above starter questions (JSON array of strings)
          */
         "welcomeMessages"?: string;
+        /**
+          * Override the z-index of the chat widget.
+         */
+        "zIndexOverride"?: number;
     }
 }
+export interface OpenChatStudioWidgetCustomEvent<T> extends CustomEvent<T> {
+    detail: T;
+    target: HTMLOpenChatStudioWidgetElement;
+}
 declare global {
+    interface HTMLOpenChatStudioWidgetElementEventMap {
+        "positionChange": { x: number; y: number };
+    }
     interface HTMLOpenChatStudioWidgetElement extends Components.OpenChatStudioWidget, HTMLStencilElement {
+        addEventListener<K extends keyof HTMLOpenChatStudioWidgetElementEventMap>(type: K, listener: (this: HTMLOpenChatStudioWidgetElement, ev: OpenChatStudioWidgetCustomEvent<HTMLOpenChatStudioWidgetElementEventMap[K]>) => any, options?: boolean | AddEventListenerOptions): void;
+        addEventListener<K extends keyof DocumentEventMap>(type: K, listener: (this: Document, ev: DocumentEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+        addEventListener<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+        addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+        removeEventListener<K extends keyof HTMLOpenChatStudioWidgetElementEventMap>(type: K, listener: (this: HTMLOpenChatStudioWidgetElement, ev: OpenChatStudioWidgetCustomEvent<HTMLOpenChatStudioWidgetElementEventMap[K]>) => any, options?: boolean | EventListenerOptions): void;
+        removeEventListener<K extends keyof DocumentEventMap>(type: K, listener: (this: Document, ev: DocumentEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+        removeEventListener<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+        removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
     }
     var HTMLOpenChatStudioWidgetElement: {
         prototype: HTMLOpenChatStudioWidgetElement;
@@ -138,6 +194,16 @@ declare namespace LocalJSX {
          */
         "chatbotId": string;
         /**
+          * Restrict dragging to a specific axis. Only applies when enableDragging is true.
+          * @default 'both'
+         */
+        "dragAxis"?: 'both' | 'x' | 'y';
+        /**
+          * Enable dragging/moving the chat widget. When false (default), the widget position is fixed.
+          * @default false
+         */
+        "enableDragging"?: boolean;
+        /**
           * The text to place in the header.
          */
         "headerText"?: '';
@@ -145,6 +211,11 @@ declare namespace LocalJSX {
           * URL of the icon to display on the button. If not provided, uses the default OCS logo.
          */
         "iconUrl"?: string;
+        /**
+          * Initial position of the widget. Can be a corner name or pixel coordinates. Corners: 'bottom-right', 'bottom-left', 'top-right', 'top-left' Coordinates: { x: number, y: number }
+          * @default 'bottom-right'
+         */
+        "initialPosition"?: string | object;
         /**
           * The language code for the widget UI (e.g., 'en', 'es', 'fr'). Defaults to en
          */
@@ -154,6 +225,10 @@ declare namespace LocalJSX {
           * @default "Starting a new chat will clear your current conversation. Continue?"
          */
         "newChatConfirmationMessage"?: string;
+        /**
+          * Event fired when widget position changes. Emits { x, y } coordinates.
+         */
+        "onPositionChange"?: (event: OpenChatStudioWidgetCustomEvent<{ x: number; y: number }>) => void;
         /**
           * Whether to persist session data to local storage to allow resuming previous conversations after page reload.
           * @default true
@@ -169,6 +244,28 @@ declare namespace LocalJSX {
           * @default 'right'
          */
         "position"?: 'left' | 'center' | 'right';
+        /**
+          * Custom persistence adapter for saving/loading widget position. Provide get() and set(pos) methods.
+         */
+        "positionPersistence"?: {
+    get: () => { x: number; y: number } | null;
+    set: (pos: { x: number; y: number }) => void;
+  };
+        /**
+          * Safe margin from viewport edges in pixels. Can be a number or object with top/right/bottom/left.
+          * @default 12
+         */
+        "safeMargin"?: number | object;
+        /**
+          * Distance in pixels from edge to trigger snap. Only applies when snapToEdges is true.
+          * @default 32
+         */
+        "snapThreshold"?: number;
+        /**
+          * Automatically snap to nearest edge when drag ends within snapThreshold pixels.
+          * @default true
+         */
+        "snapToEdges"?: boolean;
         /**
           * Array of starter questions that users can click to send (JSON array of strings)
          */
@@ -196,6 +293,10 @@ declare namespace LocalJSX {
           * Welcome messages to display above starter questions (JSON array of strings)
          */
         "welcomeMessages"?: string;
+        /**
+          * Override the z-index of the chat widget.
+         */
+        "zIndexOverride"?: number;
     }
     interface IntrinsicElements {
         "open-chat-studio-widget": OpenChatStudioWidget;
