@@ -146,5 +146,44 @@
     allow-attachments="true"
   ></open-chat-studio-widget>
 </div>
+
+<div class="widget-demo light">
+  <p>Draggable widget with edge snapping and position persistence</p>
+  <open-chat-studio-widget
+    id="draggable-widget"
+    class="widget"
+    api-base-url="http://localhost:8000"
+    visible="false"
+    chatbot-id="183312ac-cbe5-4c91-9e7b-d9df96b088e4"
+    button-text="Draggable Chat"
+    header-text="Movable Widget Demo"
+    enable-dragging="true"
+    drag-axis="both"
+    initial-position="bottom-left"
+    snap-to-edges="true"
+    snap-threshold="40"
+    safe-margin="20"
+    welcome-messages="['Try dragging me around! I snap to edges and remember my position.']"
+    starter-questions="['Tell me about draggable widgets', 'How do I use keyboard navigation?']"
+  ></open-chat-studio-widget>
+  <script>
+    // Add position persistence for draggable widget demo
+    const draggableWidget = document.getElementById('draggable-widget');
+    if (draggableWidget) {
+      draggableWidget.positionPersistence = {
+        get: () => {
+          const saved = localStorage.getItem('demo-chat-widget-position');
+          return saved ? JSON.parse(saved) : null;
+        },
+        set: (pos) => {
+          localStorage.setItem('demo-chat-widget-position', JSON.stringify(pos));
+        }
+      };
+      draggableWidget.addEventListener('positionChange', (event) => {
+        console.log('Widget position changed:', event.detail);
+      });
+    }
+  </script>
+</div>
 </body>
 </html>

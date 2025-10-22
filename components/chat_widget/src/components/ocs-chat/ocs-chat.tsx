@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import {Component, Host, h, Prop, State, Element, Watch, Env} from '@stencil/core';
+import {Component, Host, h, Prop, State, Element, Watch, Env, Event, EventEmitter} from '@stencil/core';
 import {
   XMarkIcon,
   GripDotsVerticalIcon, PlusWithCircleIcon, ArrowsPointingOutIcon, ArrowsPointingInIcon,
@@ -191,6 +191,57 @@ export class OcsChat {
   @Prop() language?: string;
 
   @Prop() translationsUrl?: string;
+
+  /**
+   * Enable dragging/moving the chat widget. When false (default), the widget position is fixed.
+   */
+  @Prop() enableDragging?: boolean = false;
+
+  /**
+   * Restrict dragging to a specific axis. Only applies when enableDragging is true.
+   */
+  @Prop() dragAxis?: 'both' | 'x' | 'y' = 'both';
+
+  /**
+   * Initial position of the widget. Can be a corner name or pixel coordinates.
+   * Corners: 'bottom-right', 'bottom-left', 'top-right', 'top-left'
+   * Coordinates: { x: number, y: number }
+   */
+  @Prop() initialPosition?: string | object = 'bottom-right';
+
+  /**
+   * Safe margin from viewport edges in pixels. Can be a number or object with top/right/bottom/left.
+   */
+  @Prop() safeMargin?: number | object = 12;
+
+  /**
+   * Automatically snap to nearest edge when drag ends within snapThreshold pixels.
+   */
+  @Prop() snapToEdges?: boolean = true;
+
+  /**
+   * Distance in pixels from edge to trigger snap. Only applies when snapToEdges is true.
+   */
+  @Prop() snapThreshold?: number = 32;
+
+  /**
+   * Override the z-index of the chat widget.
+   */
+  @Prop() zIndexOverride?: number;
+
+  /**
+   * Custom persistence adapter for saving/loading widget position.
+   * Provide get() and set(pos) methods.
+   */
+  @Prop() positionPersistence?: {
+    get: () => { x: number; y: number } | null;
+    set: (pos: { x: number; y: number }) => void;
+  };
+
+  /**
+   * Event fired when widget position changes. Emits { x, y } coordinates.
+   */
+  @Event() positionChange: EventEmitter<{ x: number; y: number }>;
 
   @State() error: string = "";
   @State() messages: ChatMessage[] = [];
@@ -855,20 +906,26 @@ export class OcsChat {
   }
 
   getPositionStyles() {
+    const baseStyles: any = {};
+
     if (this.isFullscreen) {
       const { centeredX } = this.getFullscreenBounds();
       const finalX = centeredX + this.fullscreenPosition.x;
 
-      return {
-        left: `${finalX}px`,
-        top: '0px',
-        transform: 'none',
-      };
+      baseStyles.left = `${finalX}px`;
+      baseStyles.top = '0px';
+      baseStyles.transform = 'none';
+    } else {
+      baseStyles.left = `${this.windowPosition.x}px`;
+      baseStyles.top = `${this.windowPosition.y}px`;
     }
-    return {
-      left: `${this.windowPosition.x}px`,
-      top: `${this.windowPosition.y}px`,
-    };
+
+    // Apply z-index override if provided
+    if (this.zIndexOverride !== undefined) {
+      baseStyles.zIndex = this.zIndexOverride;
+    }
+
+    return baseStyles;
   }
 
   private initializePosition(): void {
@@ -887,17 +944,37 @@ export class OcsChat {
       return;
     }
 
+    // Try to load from persistence first (only if enableDragging is enabled)
+    if (this.enableDragging && this.positionPersistence) {
+      const savedPosition = this.positionPersistence.get();
+      if (savedPosition) {
+        this.windowPosition = this.clampPosition(savedPosition.x, savedPosition.y);
+        return;
+      }
+    }
+
+    // Use initialPosition if provided and enableDragging is enabled
+    if (this.enableDragging && this.initialPosition) {
+      const pos = this.resolveInitialPosition();
+      if (pos) {
+        this.windowPosition = this.clampPosition(pos.x, pos.y);
+        return;
+      }
+    }
+
+    // Fallback to legacy position prop behavior
+    const margin = this.getSafeMarginValue();
     switch (this.position) {
       case 'left':
         this.windowPosition = {
-          x: OcsChat.WINDOW_MARGIN,
-          y: windowHeight - this.chatWindowHeight - OcsChat.WINDOW_MARGIN
+          x: margin.left,
+          y: windowHeight - this.chatWindowHeight - margin.bottom
         };
         break;
       case 'right':
         this.windowPosition = {
-          x: windowWidth - chatWidth - OcsChat.WINDOW_MARGIN,
-          y: windowHeight - this.chatWindowHeight - OcsChat.WINDOW_MARGIN
+          x: windowWidth - chatWidth - margin.right,
+          y: windowHeight - this.chatWindowHeight - margin.bottom
         };
         break;
       case 'center':
@@ -907,6 +984,85 @@ export class OcsChat {
         };
         break;
     }
+  }
+
+  /**
+   * Resolve initialPosition prop to pixel coordinates
+   */
+  private resolveInitialPosition(): { x: number; y: number } | null {
+    if (!this.initialPosition) return null;
+
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    const chatWidth = windowWidth < OcsChat.MOBILE_BREAKPOINT ? windowWidth : this.chatWindowWidth;
+    const margin = this.getSafeMarginValue();
+
+    // If it's an object with x/y, use it directly
+    if (typeof this.initialPosition === 'object' && 'x' in this.initialPosition && 'y' in this.initialPosition) {
+      return { x: this.initialPosition.x, y: this.initialPosition.y };
+    }
+
+    // If it's a string, resolve corner
+    if (typeof this.initialPosition === 'string') {
+      switch (this.initialPosition) {
+        case 'bottom-right':
+          return {
+            x: windowWidth - chatWidth - margin.right,
+            y: windowHeight - this.chatWindowHeight - margin.bottom
+          };
+        case 'bottom-left':
+          return {
+            x: margin.left,
+            y: windowHeight - this.chatWindowHeight - margin.bottom
+          };
+        case 'top-right':
+          return {
+            x: windowWidth - chatWidth - margin.right,
+            y: margin.top
+          };
+        case 'top-left':
+          return {
+            x: margin.left,
+            y: margin.top
+          };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse safeMargin prop into a margins object
+   */
+  private getSafeMarginValue(): { top: number; right: number; bottom: number; left: number } {
+    if (typeof this.safeMargin === 'number') {
+      return { top: this.safeMargin, right: this.safeMargin, bottom: this.safeMargin, left: this.safeMargin };
+    }
+    if (typeof this.safeMargin === 'object') {
+      return {
+        top: (this.safeMargin as any).top ?? 12,
+        right: (this.safeMargin as any).right ?? 12,
+        bottom: (this.safeMargin as any).bottom ?? 12,
+        left: (this.safeMargin as any).left ?? 12,
+      };
+    }
+    return { top: 12, right: 12, bottom: 12, left: 12 };
+  }
+
+  /**
+   * Clamp position to viewport with safe margins
+   */
+  private clampPosition(x: number, y: number): { x: number; y: number } {
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    const chatWidth = windowWidth < OcsChat.MOBILE_BREAKPOINT ? windowWidth : this.chatWindowWidth;
+    const chatHeight = this.chatWindowRef?.offsetHeight || this.chatWindowHeight;
+    const margin = this.getSafeMarginValue();
+
+    return {
+      x: Math.max(margin.left, Math.min(x, windowWidth - chatWidth - margin.right)),
+      y: Math.max(margin.top, Math.min(y, windowHeight - chatHeight - margin.bottom))
+    };
   }
 
   private getPointerCoordinates(event: MouseEvent | TouchEvent): PointerEvent | null {
@@ -951,25 +1107,76 @@ export class OcsChat {
         x: Math.max(-maxOffset, Math.min(maxOffset, deltaX))
       };
     } else {
-      const newX = pointer.clientX - this.dragOffset.x;
-      const newY = pointer.clientY - this.dragOffset.y;
+      let newX = pointer.clientX - this.dragOffset.x;
+      let newY = pointer.clientY - this.dragOffset.y;
 
-      // Constrain chatbox to window
-      const windowWidth = window.innerWidth;
-      const windowHeight = window.innerHeight;
-      const chatWidth = windowWidth < OcsChat.MOBILE_BREAKPOINT ? windowWidth : this.chatWindowWidth;
-      const chatHeight = this.chatWindowRef.offsetHeight;
+      // Apply axis constraints when enableDragging is enabled
+      if (this.enableDragging && this.dragAxis) {
+        if (this.dragAxis === 'x') {
+          newY = this.windowPosition.y; // Keep Y fixed
+        } else if (this.dragAxis === 'y') {
+          newX = this.windowPosition.x; // Keep X fixed
+        }
+      }
 
-      this.windowPosition = {
-        x: Math.max(0, Math.min(newX, windowWidth - chatWidth)),
-        y: Math.max(0, Math.min(newY, windowHeight - chatHeight))
-      };
+      // Clamp to viewport with safe margins
+      this.windowPosition = this.clampPosition(newX, newY);
     }
   }
 
   private endDrag(): void {
+    if (!this.isDragging) return;
+
     this.isDragging = false;
     this.removeEventListeners();
+
+    // Apply snap-to-edges logic (only when enableDragging and not fullscreen)
+    if (this.enableDragging && this.snapToEdges && !this.isFullscreen) {
+      this.windowPosition = this.applyEdgeSnapping(this.windowPosition);
+    }
+
+    // Trigger callbacks and persistence (only when enableDragging)
+    if (this.enableDragging) {
+      this.savePosition(this.windowPosition);
+    }
+  }
+
+  /**
+   * Apply edge snapping if position is within snapThreshold of an edge
+   */
+  private applyEdgeSnapping(pos: { x: number; y: number }): { x: number; y: number } {
+    if (!this.snapToEdges || !this.snapThreshold) return pos;
+
+    const windowWidth = window.innerWidth;
+    const chatWidth = windowWidth < OcsChat.MOBILE_BREAKPOINT ? windowWidth : this.chatWindowWidth;
+    const margin = this.getSafeMarginValue();
+
+    let { x, y } = pos;
+
+    // Snap to left or right edge
+    const distanceToLeft = x - margin.left;
+    const distanceToRight = (windowWidth - margin.right - chatWidth) - x;
+
+    if (distanceToLeft < this.snapThreshold && distanceToLeft < distanceToRight) {
+      x = margin.left;
+    } else if (distanceToRight < this.snapThreshold) {
+      x = windowWidth - chatWidth - margin.right;
+    }
+
+    return { x, y };
+  }
+
+  /**
+   * Save position via events and persistence
+   */
+  private savePosition(pos: { x: number; y: number }): void {
+    // Emit positionChange event
+    this.positionChange.emit(pos);
+
+    // Save to persistence adapter if provided
+    if (this.positionPersistence) {
+      this.positionPersistence.set(pos);
+    }
   }
 
   private addEventListeners(): void {
@@ -987,6 +1194,8 @@ export class OcsChat {
   }
 
   private handleMouseDown = (event: MouseEvent): void => {
+    // Only allow dragging if enableDragging prop is true, or legacy fullscreen dragging
+    if (!this.enableDragging && !this.isFullscreen) return;
     if (!this.isFullscreen && window.innerWidth < OcsChat.MOBILE_BREAKPOINT) return;
     if ((event.target as HTMLElement).closest('button')) return;
 
@@ -1010,6 +1219,8 @@ export class OcsChat {
   };
 
   private handleTouchStart = (event: TouchEvent): void => {
+    // Only allow dragging if enableDragging prop is true, or legacy fullscreen dragging
+    if (!this.enableDragging && !this.isFullscreen) return;
     if ((event.target as HTMLElement).closest('button')) return;
     if (!this.chatWindowRef) return;
 
@@ -1034,8 +1245,58 @@ export class OcsChat {
   };
 
   private handleWindowResize = (): void => {
-    this.positionInitialized = false;
-    this.initializePosition();
+    // Re-clamp position if enableDragging is enabled
+    if (this.enableDragging && this.positionInitialized) {
+      this.windowPosition = this.clampPosition(this.windowPosition.x, this.windowPosition.y);
+      this.savePosition(this.windowPosition);
+    } else {
+      this.positionInitialized = false;
+      this.initializePosition();
+    }
+  };
+
+  /**
+   * Handle keyboard navigation for drag handle
+   */
+  private handleDragHandleKeyDown = (event: KeyboardEvent): void => {
+    if (!this.enableDragging || this.isFullscreen) return;
+
+    const step = event.shiftKey ? 50 : 10;
+    let { x, y } = this.windowPosition;
+    let moved = false;
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        if (this.dragAxis !== 'y') {
+          x -= step;
+          moved = true;
+        }
+        break;
+      case 'ArrowRight':
+        if (this.dragAxis !== 'y') {
+          x += step;
+          moved = true;
+        }
+        break;
+      case 'ArrowUp':
+        if (this.dragAxis !== 'x') {
+          y -= step;
+          moved = true;
+        }
+        break;
+      case 'ArrowDown':
+        if (this.dragAxis !== 'x') {
+          y += step;
+          moved = true;
+        }
+        break;
+    }
+
+    if (moved) {
+      event.preventDefault();
+      this.windowPosition = this.clampPosition(x, y);
+      this.savePosition(this.windowPosition);
+    }
   };
 
   private getDefaultIconUrl(): string {
@@ -1262,16 +1523,24 @@ export class OcsChat {
           >
             {/* Header */}
             <div
-              class={`chat-header ${this.isDragging ? 'chat-header-dragging' : 'chat-header-draggable'}`}
+              class={`chat-header ${(this.enableDragging || this.isFullscreen) && this.isDragging ? 'chat-header-dragging' : (this.enableDragging || this.isFullscreen) ? 'chat-header-draggable' : ''}`}
               onMouseDown={this.handleMouseDown}
               onTouchStart={this.handleTouchStart}
             >
-              {/* Drag indicator */}
-              <div class="drag-indicator">
-                <div class="drag-dots header-button">
-                  <GripDotsVerticalIcon/>
+              {/* Drag indicator - only show when enableDragging or fullscreen */}
+              {(this.enableDragging || this.isFullscreen) && (
+                <div
+                  class="drag-indicator"
+                  tabindex={this.enableDragging && !this.isFullscreen ? 0 : -1}
+                  role={this.enableDragging && !this.isFullscreen ? "button" : undefined}
+                  aria-label={this.enableDragging && !this.isFullscreen ? "Move chat widget. Use arrow keys to reposition." : undefined}
+                  onKeyDown={this.handleDragHandleKeyDown}
+                >
+                  <div class="drag-dots header-button">
+                    <GripDotsVerticalIcon/>
+                  </div>
                 </div>
-              </div>
+              )}
               <div class="header-text">{this.translationManager.get('headerText') || this.headerText}</div>
               <div class="header-buttons">
                 {/* New Chat button */}
